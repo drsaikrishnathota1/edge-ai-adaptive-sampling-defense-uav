@@ -27,8 +27,6 @@ FEATURE_COLUMNS = [
     "std_intensity",
     "entropy",
     "edge_density",
-    "motion_score",
-    "object_count_change",
 ]
 
 RATES = (1, 5, 10, 20)
@@ -89,18 +87,23 @@ def simulate_policy(
 
     sampled_indices: list[int] = []
     selected_rates: list[int] = []
-    cursor = 0
+    cursor = 0.0
 
     while cursor < total_frames:
-        row = sequence_df.iloc[cursor]
+        frame_index = int(round(cursor))
+
+        if sampled_indices and frame_index <= sampled_indices[-1]:
+            frame_index = sampled_indices[-1] + 1
+
+        if frame_index >= total_frames:
+            break
+
+        row = sequence_df.iloc[frame_index]
         selected_rate = normalize_rate(choose_rate(row))
-        sampled_indices.append(cursor)
+        sampled_indices.append(frame_index)
         selected_rates.append(selected_rate)
 
-        gap = max(1, round(source_fps / selected_rate))
-        cursor += gap
-
-    sampled_set = set(sampled_indices)
+        cursor += source_fps / selected_rate
     episodes = contiguous_event_episodes(
         sequence_df["event_present"].to_numpy(dtype=int)
     )
@@ -151,7 +154,7 @@ def main() -> None:
     seed = int(cfg["seed"])
     exp_cfg = cfg["experiment"]
     energy_cfg = cfg["energy_model"]
-    threshold_cfg = cfg["motion_threshold_policy"]
+    threshold_cfg = cfg["visual_threshold_policy"]
 
     data = pd.read_csv("data/frame_features.csv")
     groups = data["sequence"]
@@ -224,10 +227,14 @@ def main() -> None:
         return int(model.predict(frame)[0])
 
     def threshold_policy(row: pd.Series) -> int:
-        motion = float(row["motion_score"])
-        if motion < low_threshold:
+        activity_score = (
+            100.0 * float(row["edge_density"])
+            + 2.0 * float(row["entropy"])
+        )
+
+        if activity_score < low_threshold:
             return 1
-        if motion < high_threshold:
+        if activity_score < high_threshold:
             return 5
         return 20
 
@@ -236,7 +243,7 @@ def main() -> None:
         ("Fixed-5-FPS", lambda row: 5),
         ("Fixed-10-FPS", lambda row: 10),
         ("Fixed-20-FPS", lambda row: 20),
-        ("Motion-Threshold", threshold_policy),
+        ("Visual-Threshold", threshold_policy),
         ("Edge-AI-Adaptive", ai_policy),
     ]
 

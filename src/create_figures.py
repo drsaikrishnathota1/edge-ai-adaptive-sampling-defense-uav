@@ -34,7 +34,7 @@ def main() -> None:
         "Fixed-5-FPS",
         "Fixed-10-FPS",
         "Fixed-20-FPS",
-        "Motion-Threshold",
+        "Visual-Threshold",
         "Edge-AI-Adaptive",
     ]
     summary["policy"] = pd.Categorical(

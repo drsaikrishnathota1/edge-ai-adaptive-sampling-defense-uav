@@ -22,7 +22,7 @@ The workflow:
    - fixed 5 FPS;
    - fixed 10 FPS;
    - fixed 20 FPS;
-   - motion-threshold sampling.
+   - visual-threshold sampling.
 7. Reports event recall, detection delay, sampled frames, transmission volume, and estimated energy.
 8. Produces bootstrap 95% confidence intervals and publication-ready figures.
 
