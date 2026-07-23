@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Create lightweight visual features and annotation-derived event labels."""
+"""Prepare low-resolution preview features and annotation-derived event risk."""
 
 from __future__ import annotations
 
 import argparse
 import configparser
 from pathlib import Path
-from typing import Iterable
 
 import cv2
 import numpy as np
@@ -63,20 +62,21 @@ def read_annotations(path: Path, target_categories: set[int]) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame(columns=VISDRONE_COLUMNS)
 
-    df = pd.read_csv(path, header=None)
-    if df.shape[1] < 10:
+    frame = pd.read_csv(path, header=None)
+    if frame.shape[1] < 10:
         raise ValueError(f"Unexpected annotation format in {path}")
-    df = df.iloc[:, :10]
-    df.columns = VISDRONE_COLUMNS
 
-    valid = (df["score"] != 0) & df["category"].isin(target_categories)
-    return df.loc[valid].copy()
+    frame = frame.iloc[:, :10]
+    frame.columns = VISDRONE_COLUMNS
+    valid = (frame["score"] != 0) & frame["category"].isin(target_categories)
+    return frame.loc[valid].copy()
 
 
 def frame_feature_vector(
     gray: np.ndarray,
     previous_gray: np.ndarray | None,
 ) -> dict[str, float]:
+    """Extract features from a low-resolution always-on preview stream."""
     small = cv2.resize(gray, (160, 90), interpolation=cv2.INTER_AREA)
 
     mean_intensity = float(np.mean(small))
@@ -106,25 +106,25 @@ def frame_feature_vector(
     }
 
 
-def oracle_required_fps(
-    current_objects: int,
-    next_objects: int,
-    motion_score: float,
-) -> int:
-    """Define the minimum desirable rate from future activity and scene change.
+def add_future_risk(sequence_rows: list[dict], horizon_frames: int) -> None:
+    new_tracks = np.asarray(
+        [row["new_track_count"] for row in sequence_rows], dtype=float
+    )
+    count_changes = np.asarray(
+        [row["object_count_change"] for row in sequence_rows], dtype=float
+    )
 
-    This label is used only for supervised training and is never available to
-    the controller during testing.
-    """
-    change = abs(next_objects - current_objects)
+    for index, row in enumerate(sequence_rows):
+        start = index + 1
+        end = min(len(sequence_rows), start + horizon_frames)
+        if start >= end:
+            row["future_event_risk"] = 0.0
+            continue
 
-    if current_objects == 0 and next_objects == 0 and motion_score < 6:
-        return 1
-    if max(current_objects, next_objects) <= 2 and change == 0 and motion_score < 12:
-        return 5
-    if max(current_objects, next_objects) <= 6 and change <= 2 and motion_score < 22:
-        return 10
-    return 20
+        # New target entries dominate; count changes add secondary scene activity.
+        row["future_event_risk"] = float(
+            new_tracks[start:end].sum() + 0.25 * count_changes[start:end].sum()
+        )
 
 
 def main() -> None:
@@ -143,7 +143,7 @@ def main() -> None:
     sequences_dir = root / "sequences"
     annotations_dir = root / "annotations"
 
-    sequence_dirs = sorted([p for p in sequences_dir.iterdir() if p.is_dir()])
+    sequence_dirs = sorted([path for path in sequences_dir.iterdir() if path.is_dir()])
     max_sequences = int(dataset_cfg["max_sequences"])
     if max_sequences > 0:
         sequence_dirs = sequence_dirs[:max_sequences]
@@ -154,6 +154,7 @@ def main() -> None:
     target_categories = set(map(int, experiment_cfg["target_categories"]))
     max_frames = int(dataset_cfg["max_frames_per_sequence"])
     default_fps = int(dataset_cfg["default_source_fps"])
+    event_horizon_sec = float(experiment_cfg["event_horizon_sec"])
 
     rows: list[dict] = []
 
@@ -166,10 +167,17 @@ def main() -> None:
 
         annotation_path = annotations_dir / f"{sequence_dir.name}.txt"
         annotations = read_annotations(annotation_path, target_categories)
-        counts = annotations.groupby("frame").size().to_dict()
+        grouped_ids = (
+            annotations.groupby("frame")["target_id"]
+            .apply(lambda values: set(map(int, values)))
+            .to_dict()
+        )
 
         source_fps = read_sequence_fps(sequence_dir, default_fps)
+        horizon_frames = max(1, round(event_horizon_sec * source_fps))
         previous_gray = None
+        previous_count = 0
+        seen_ids: set[int] = set()
         sequence_rows: list[dict] = []
 
         for zero_index, frame_path in enumerate(
@@ -180,8 +188,17 @@ def main() -> None:
             if image is None:
                 continue
 
+            current_ids = grouped_ids.get(frame_number, set())
+            if zero_index == 0:
+                new_ids: set[int] = set()
+                seen_ids.update(current_ids)
+            else:
+                new_ids = current_ids - seen_ids
+                seen_ids.update(current_ids)
+
+            object_count = len(current_ids)
+            object_count_change = abs(object_count - previous_count)
             features = frame_feature_vector(image, previous_gray)
-            object_count = int(counts.get(frame_number, 0))
 
             sequence_rows.append(
                 {
@@ -190,25 +207,18 @@ def main() -> None:
                     "time_sec": zero_index / source_fps,
                     "source_fps": source_fps,
                     "object_count": object_count,
-                    "event_present": int(
-                        object_count >= int(experiment_cfg["event_min_objects"])
-                    ),
+                    "object_count_change": object_count_change,
+                    "new_track_count": len(new_ids),
+                    "event_present": int(len(new_ids) > 0),
                     **features,
                 }
             )
-            previous_gray = image
 
-        for index, row in enumerate(sequence_rows):
-            next_count = (
-                sequence_rows[index + 1]["object_count"]
-                if index + 1 < len(sequence_rows)
-                else row["object_count"]
-            )
-            row["object_count_change"] = abs(next_count - row["object_count"])
-            row["oracle_fps"] = oracle_required_fps(
-                row["object_count"], next_count, row["motion_score"]
-            )
-            rows.append(row)
+            previous_gray = image
+            previous_count = object_count
+
+        add_future_risk(sequence_rows, horizon_frames)
+        rows.extend(sequence_rows)
 
     output = pd.DataFrame(rows)
     if output.empty:
@@ -221,15 +231,18 @@ def main() -> None:
         output.groupby("sequence")
         .agg(
             frames=("frame", "count"),
-            events=("event_present", "sum"),
+            new_track_events=("event_present", "sum"),
+            new_tracks=("new_track_count", "sum"),
             mean_objects=("object_count", "mean"),
+            positive_risk_frames=("future_event_risk", lambda values: int((values > 0).sum())),
         )
         .reset_index()
     )
     summary.to_csv("results/dataset_summary.csv", index=False)
 
-    print(f"Saved {len(output):,} frame records to {output_path}")
+    print(f"Saved {len(output):,} preview-frame records to {output_path}")
     print(f"Used {output['sequence'].nunique()} independent sequences")
+    print(f"Recorded {int(output['event_present'].sum()):,} new-track events")
 
 
 if __name__ == "__main__":

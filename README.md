@@ -14,9 +14,9 @@ The workflow:
    - image entropy;
    - edge density;
    - intensity mean and variation.
-3. Creates an offline oracle sampling label of 1, 5, 10, or 20 FPS from annotated scene activity.
-4. Splits data by complete video sequence.
-5. Trains one Random Forest Edge AI sampling controller.
+3. Uses annotation-derived new-target entries to define short-horizon surveillance risk.
+4. Uses leave-one-sequence-out cross-validation so every video is tested independently.
+5. Trains a Random Forest risk predictor from an always-on 160×90 preview stream.
 6. Compares it with:
    - fixed 1 FPS;
    - fixed 5 FPS;
@@ -66,12 +66,10 @@ python run_experiment.py --skip-download
 results/
 ├── dataset_summary.csv
 ├── controller_metrics.csv
-├── controller_classification_report.csv
-├── controller_confusion_matrix.csv
-├── policy_metrics_by_sequence.csv
+├── ├── policy_metrics_by_sequence.csv
 ├── policy_summary.csv
 ├── feature_importance.csv
-└── sequence_split.csv
+└── cross_validation_folds.csv
 
 figures/
 ├── energy_vs_event_recall.png
@@ -86,8 +84,8 @@ models/
 ## Reproducibility controls
 
 - fixed random seed;
-- sequence-level train/test separation;
-- saved sequence split;
+- leave-one-sequence-out cross-validation;
+- saved fold definitions;
 - fixed baseline policies;
 - bootstrap confidence intervals;
 - configuration stored in `config.yaml`;
