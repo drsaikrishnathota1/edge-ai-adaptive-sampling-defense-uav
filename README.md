@@ -66,7 +66,7 @@ python run_experiment.py --skip-download
 results/
 ├── dataset_summary.csv
 ├── controller_metrics.csv
-├── ├── policy_metrics_by_sequence.csv
+├── policy_metrics_by_sequence.csv
 ├── policy_summary.csv
 ├── feature_importance.csv
 └── cross_validation_folds.csv
