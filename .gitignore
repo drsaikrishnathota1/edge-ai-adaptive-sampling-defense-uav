@@ -1,37 +1,34 @@
 # Python
 __pycache__/
 *.py[cod]
-*.so
-.Python
-venv/
 .venv/
-env/
+venv/
 
-# Datasets and generated outputs
-data/
-datasets/
-models/
-checkpoints/
-runs/
-cache/
-*.pt
-*.pth
-*.onnx
+# Dataset and generated artifacts
+data/*
+!data/.gitkeep
+results/*
+!results/.gitkeep
+figures/*
+!figures/.gitkeep
+models/*
+!models/.gitkeep
 
-# Large video files
+# Large files
+*.zip
 *.mp4
 *.avi
 *.mov
 *.mkv
+*.jpg
+*.png
+*.pt
+*.pth
+*.joblib
 
-# System and editor files
+# System and editor
 .DS_Store
 .vscode/
 .idea/
-
-# Jupyter
 .ipynb_checkpoints/
-
-# Secrets
 .env
-*.key

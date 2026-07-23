@@ -1,0 +1,27 @@
+seed: 42
+
+dataset:
+  google_drive_file_id: "1xuG7Z3IhVfGGKMe3Yj6RnrFHqo_d2a1B"
+  zip_path: "data/VisDrone2019-VID-val.zip"
+  extract_dir: "data/VisDrone2019-VID-val"
+  max_sequences: 12
+  max_frames_per_sequence: 2500
+  default_source_fps: 25
+
+experiment:
+  sampling_rates_fps: [1, 5, 10, 20]
+  test_size: 0.30
+  random_forest_trees: 250
+  target_categories: [1, 2, 4, 5, 6, 9, 10]
+  event_min_objects: 1
+  bootstrap_iterations: 500
+
+energy_model:
+  camera_mj_per_frame: 2.0
+  feature_processing_mj_per_frame: 5.0
+  transmission_mj_per_frame: 3.0
+  controller_mj_per_decision: 0.02
+
+motion_threshold_policy:
+  low_threshold: 8.0
+  high_threshold: 20.0
